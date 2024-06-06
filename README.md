@@ -3,6 +3,6 @@
 PBL grupo 6
 
 Aqui há:
-1) Dadods utilizados
+1) Dados utilizados
 2) Código de análise
 3) Material suplementar
