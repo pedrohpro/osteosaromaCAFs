@@ -1,0 +1,90 @@
+---
+title: "imuno_script"
+format: html
+editor: visual
+---
+
+# Library importation
+
+```{r}
+
+library(tidyverse)
+library(ggsignif)
+```
+
+# Data importation
+
+```{r}
+df <- read.delim("dadosimuno.csv", sep = ";") %>% 
+  select(Description, DAPI, Rhodamine, Condition, Well, Photo) %>% 
+  mutate(
+    Description = factor(Description),
+    Condition = factor(Condition),
+    Well = factor(Well),
+    Photo = factor(Photo),
+    DAPI = as.numeric(gsub(",", ".", DAPI)),
+    Rhodamine = as.numeric(gsub(",", ".", Rhodamine))
+  ) %>% 
+  filter(
+    Description == "Median" # "Arithmetic mean intensity"
+  )
+```
+
+# Box plot
+
+```{r}
+box_plot <- ggplot(df, aes(x = Condition, y = Rhodamine, fill = Condition)) +
+    geom_point( #jitters scatters randomly everytime
+       position = position_jitterdodge(jitter.width = 0.75), 
+       color = "#88888888", 
+       size = 3
+    )+
+    geom_boxplot(
+      #position = position_dodge(width = 1.2), # spacing between boxes
+      alpha = 0.5, # because points are behind decrease opacity
+      fill = c("#f6caad","#8bd7f7"),
+      color = c("#f6caad","#8bd7f7aa")
+    )+
+  geom_signif(
+      comparisons = list(c("treated", "untreated")), 
+      map_signif_level = TRUE,
+      textsize = 6
+    ) +
+    # geom_text( # To show all labels # geom_text_repel
+    #   aes(label = annot, y = expression + expression/3), #y = expression + 5 # y = max(expression) + 5
+    #   position = position_dodge(width = 1.2),
+    #   #max.overlaps = Inf, # geom_text_repel parameter
+    #   color = "black",
+    #   #background_color = "white", # não existe esse parâmetro
+    #   size = 2,
+    #   #angle = 45
+    # )+
+    labs(
+      title = NULL,
+      #subtitle = "",
+      #caption = "* significant (DE padj < 0.05), ** significant and DEG (|log2fc| > 1)",
+      x = NULL,
+      y = bquote(bold(alpha*"-SMA fluorescence"))
+    )+ 
+    theme_minimal()+
+  scale_y_continuous(expand = c(0.1, 0.05)) + # remove extra padding between bars and x axis
+  scale_x_discrete(expand = c(0, 0)) +  # Adjust the horizontal padding
+  theme(
+      plot.background = element_rect(fill = "white", color = NA),  # Set background to white (and color is the border top and right)
+      panel.background = element_rect(fill = "white", color = NA),  # Set panel background color to white
+      panel.border = element_blank(),  # Remove panel borders
+      panel.grid.major = element_blank(),  # Remove major grid lines
+      panel.grid.minor = element_blank(),  # Remove minor grid lines
+      axis.line = element_line(color = "black", linewidth = 0.5),  # Make axes lines bold
+      axis.title = element_text(face = "bold"),  # Make axis titles bold
+      axis.text = element_text(face = "bold"),  # Make axis text bold
+      axis.ticks.x = element_blank(),  # Remove x-axis ticks
+      axis.ticks.y = element_line(color = "black", size = 0.5),  # Make y-axis ticks bold
+      axis.title.y = element_text(size = 14, face = "bold"),
+      axis.text.x = element_text(size = 15), # angle = 45, hjust = 1 rotate x axis test 45 degrees
+      #axis.text.y = element_text(size = 15),
+      legend.position = "none" # No legend
+  )
+
+ggsave("boxplot.png", plot = box_plot, height = 4, width = 4)
+```
