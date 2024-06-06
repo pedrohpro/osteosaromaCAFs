@@ -1,4 +1,4 @@
-# Cancer Induced Fibroblast in Osteosarcoma
+# Cancer Associated Fibroblast in Osteosarcoma
 
 PBL grupo 6
 
