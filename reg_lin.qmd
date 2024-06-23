@@ -1,0 +1,241 @@
+---
+title: "reg_lin"
+format: html
+editor: visual
+---
+
+# Library importation
+
+```{r}
+
+rm(list = ls())
+
+library(tidyverse) 
+library(imager)
+library(abind)
+library(rayshader)
+library(graphics)
+library(pixmap)
+library(cowplot)
+library(ggpmisc)
+
+```
+
+# Data importation
+
+load.image = 3D array (width, height, channels(RGB)) #without alpha
+
+```{r}
+images <- list()
+
+# image importation
+for (i in list.files("images")[1:42]) {
+  for (j in list.files(paste0("images/", i,"/zstack"))) {
+    name_prov <- gsub(".png","",j)
+    images[[i]][[as.numeric(substr(name_prov, 17, nchar(name_prov)))]] <- load.image(paste0("images/", i, "/zstack/", j))
+  }
+}
+
+```
+
+# Calculating fluorescence
+
+```{r}
+
+df <- map2_dfr(images, names(images), ~ data.frame(
+  pic_id = .y,
+  fluo = map_dbl(.x, function(img) sum(as.matrix(img))) #img[,,2] # green matrix
+)) %>% 
+  mutate(
+    scaf = substring(pic_id, 1, 3),
+    condition = substring(pic_id, 1, 2),
+    time_point = gsub("^[^_]*_", "", pic_id),
+    time_point = gsub("t", "", time_point),
+    pic_id = factor(pic_id),
+    fluo = as.numeric(fluo),
+    scaf = factor(scaf),
+    condition = factor(condition),
+    time_point = as.numeric(time_point)
+  ) %>% 
+  group_by(pic_id) %>% 
+  #rownames_to_column("layer") %>%
+  mutate(
+    layer = 1:99,
+    scaled = scale(fluo),
+    scaled = case_when(
+      scaled < 0 ~ 0,
+      TRUE ~ scaled
+    )
+  ) %>% 
+  ungroup()
+
+# getting layer of highest fluorescence
+reg_df <- df %>% 
+  group_by(pic_id) %>% 
+  filter(fluo == max(fluo)) %>% 
+  ungroup() %>% 
+  as.data.frame()
+```
+
+# Histogram
+
+```{r}
+
+# color = "#229922"
+
+for (i in levels(df$scaf)) {
+  hist_list <- list()
+  for(j in 0:6){
+    #print(paste0(i, " / ", j))
+    hist_list[[j+1]] <- ggplot(df %>% filter(scaf == i, time_point == j), aes(x = layer, y = scaled)) +
+    geom_bar(stat = "identity", aes(fill = ifelse(substr(i,1,2) == "NO", "#44ee4477", ifelse(substr(i,1,2) == "TR","#4444ee77","#ee444477"))))+
+    scale_fill_manual(values = ifelse(substr(i,1,2) == "NO", "#44ee4477", ifelse(substr(i,1,2) == "TR","#4444ee77","#ee444477"))) +  # Explicitly set the fill color
+    #scale_border_manaul()+ ????
+    labs(
+      title = paste0(j*10, "min"),
+      x = "altura",
+      y = "GFAP fluorescência"
+    )+ 
+    theme_minimal()+
+  #scale_y_continuous(expand = c(0.1, 0.05)) + # remove extra padding between bars and x axis
+  #scale_x_discrete(expand = c(0, 0)) +  # Adjust the horizontal padding
+  theme(
+      plot.background = element_rect(fill = "white", color = NA),  # Set background to white (and color is the border top and right)
+      panel.background = element_rect(fill = "white", color = NA),  # Set panel background color to white
+      panel.border = element_blank(),  # Remove panel borders
+      panel.grid.major = element_blank(),  # Remove major grid lines
+      panel.grid.minor = element_blank(),  # Remove minor grid lines
+      axis.line = element_line(color = "black", linewidth = 0.5),  # Make axes lines bold
+      axis.title = element_text(face = "bold"),  # Make axis titles bold
+      axis.text = element_text(face = "bold"),  # Make axis text bold
+      axis.ticks.x = element_blank(),  # Remove x-axis ticks
+      axis.ticks.y = element_line(color = "black", linewidth = 0.5),  # Make y-axis ticks bold
+      axis.title.y = element_text(size = 14, face = "bold"),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 12),
+      
+       plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+      # angle = 45, hjust = 1 rotate x axis test 45 degrees
+      #axis.text.y = element_text(size = 15),
+      legend.position = "none" # No legend
+    ) +
+      coord_flip()  # Make bars horizontal
+  }
+  
+  combined_plot <- plot_grid(hist_list[[1]], hist_list[[2]], hist_list[[3]], hist_list[[4]], hist_list[[5]], hist_list[[6]], hist_list[[7]], nrow = 1)
+  
+  ggsave(paste0("results/hist_", i, ".png"), plot = combined_plot, height = 4, width = 20)
+}
+```
+
+# Linear regression plot
+
+```{r}
+
+
+reg_plot <- ggplot() +
+  geom_jitter( # U2OS alone
+    data = reg_df %>% filter(condition == "NO"), 
+    aes(x = time_point, y = layer),
+    position = position_jitter(width = 0.1, height = 0.1), 
+    color = "#00ff0077", 
+    size = 3
+  ) +
+  geom_jitter( # FIB CT
+    data = reg_df %>% filter(condition == "UN"), 
+    aes(x = time_point, y = layer),
+    position = position_jitter(width = 0.1, height = 0.1), 
+    color = "#ff000077", 
+    size = 3
+  ) +
+  geom_jitter( # CAFs
+    data = reg_df %>% filter(condition == "TR"), 
+    aes(x = time_point, y = layer),
+    position = position_jitter(width = 0.1, height = 0.1), 
+    color = "#0000ff77", 
+    size = 3
+  ) +
+  geom_smooth( # U2OS alone
+    data = reg_df %>% filter(condition == "NO"), 
+    aes(x = time_point, y = layer),
+    method = "lm", # linear model
+    se = FALSE, # no confidence interval
+    color = "#00ff00aa" # line
+  ) +
+  geom_smooth( # FIB CT
+    data = reg_df %>% filter(condition == "UN"), 
+    aes(x = time_point, y = layer),
+    method = "lm", # linear model
+    se = FALSE, # no confidence interval
+    color = "#ff0000aa" # line
+  ) +
+  geom_smooth( # CAFs
+    data = reg_df %>% filter(condition == "TR"), 
+    aes(x = time_point, y = layer),
+    method = "lm", # linear model
+    se = FALSE, # no confidence interval
+    color = "#0000ffaa" # line
+  ) +
+  # stat_poly_eq(
+  #   data = reg_df %>% filter(condition == "NO"),
+  #   aes(x = time_point, y = layer, label = paste(..eq.label.., ..p.value.label.., sep = "~~~")),
+  #   formula = y ~ x,
+  #   parse = TRUE,
+  #   color = "#00ff00",
+  #   label.x.npc = 'right',
+  #   label.y.npc = 0.15
+  # ) +
+  # stat_poly_eq(
+  #   data = reg_df %>% filter(condition == "UN"),
+  #   aes(x = time_point, y = layer, label = paste(..eq.label.., ..p.value.label.., sep = "~~~")),
+  #   formula = y ~ x,
+  #   parse = TRUE,
+  #   color = "#ff0000",
+  #   label.x.npc = 'right',
+  #   label.y.npc = 0.25
+  # ) +
+  # stat_poly_eq(
+  #   data = reg_df %>% filter(condition == "TR"),
+  #   aes(x = time_point, y = layer, label = paste(..eq.label.., ..p.value.label.., sep = "~~~")),
+  #   formula = y ~ x,
+  #   parse = TRUE,
+  #   color = "#0000ff",
+  #   label.x.npc = 'right',
+  #   label.y.npc = 0.35
+  # ) +
+  labs(
+    x = "Time",
+    y = "Height"
+  ) +
+  theme(
+    plot.background = element_rect(fill = "white", color = NA),  # Set background to white (and color is the border top and right)
+    panel.background = element_rect(fill = "white", color = NA),  # Set panel background color to white
+    panel.border = element_blank(),  # Remove panel borders
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.line = element_line(color = "black", linewidth = 0.5),  # Make axes lines bold
+    axis.text = element_text(face = "bold"),  # Make axis text bold
+    axis.ticks.x = element_blank(),  # Remove x-axis ticks
+    axis.ticks.y = element_line(color = "black", linewidth = 0.5),  # Make y-axis ticks bold
+    axis.title = element_text(face = "bold"),  # Make axis titles bold
+    axis.title.y = element_text(size = 15),
+    axis.title.x = element_text(size = 15) # angle = 45, hjust = 1 rotate x axis test 45 degrees
+    #axis.text.y = element_text(size = 15),
+    #legend.position = "none" # No legend
+  )
+  
+ggsave("results/regression.png", reg_plot, height = 5, width = 5)
+```
+
+# Z-stack images
+
+```{r}
+
+# zstacked_images <- list()
+# 
+# # zstack
+# for (i in seq_along(images)) {
+#   zstacked_images[[i]] <- abind(images[[i]], along = 3)
+# }
+
+```
